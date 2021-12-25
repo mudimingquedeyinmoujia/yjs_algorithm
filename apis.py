@@ -1,3 +1,5 @@
+import base64
+
 import torch
 import pyredner
 import h5py
@@ -14,13 +16,10 @@ import torchvision.transforms as transforms
 # 初始化一个对象
 # 对象里的各种函数调用
 
-# confs
-# confs.target_img --- numpy
-# confs.cam_pos --- list [3,]
-# confs.cam_look_at --- list [3,]
-# confs.
 
-confs = {'target_img': './datas/target.png',
+
+# 看看怎么和后端对接
+confs = {'target_img': './datas/target.jpg',
          'cam_pos': [-0.2697, -5.7891, 373.9277],
          'cam_look_at': [-0.2697, -5.7891, 54.7918],
          'lr_1': 0.05,
@@ -115,12 +114,21 @@ def save_img(save_dir,obj,target_name,iter_cnt,ambient_color,dir_light_intensity
         img_name = target_name +'_' + str(iter_cnt) + '_{:03d}.jpg'.format(i)
         img_path = os.path.join(save_dir, img_name)
         pyredner.imwrite(img, img_path)
+        # 保存成txt文件
+        # with open(img_path, "rb") as f:
+        #     base64_data = base64.b64encode(f.read())  # 读取图片转换的二进制文件，并给赋值
+        #
 
+        # with open(img_path.split('.jpg')[0]+'.txt','w') as ff:
+        #     ff.write(base64_data)
 
 
 class Processor:
     def __init__(self, confs):
+        self.confs=confs
         self.target_name=confs['target_img'].split('/')[-1].split('.jpg')[0]
+        print("---" * 50)
+        print('step  1  ok')
         self.target = pyredner.imread(confs['target_img']).to(pyredner.get_device())
         self.cam_pos = torch.tensor(confs['cam_pos'], requires_grad=True)
         self.cam_look_at = torch.tensor(confs['cam_look_at'], requires_grad=True)
@@ -138,8 +146,8 @@ class Processor:
     def train(self):
         # imshow(self.target.cpu())
         print('img_name',self.target_name)
-        os.makedirs(confs['save_dir_img'], exist_ok=True)
-        os.makedirs(confs['save_dir_obj'], exist_ok=True)
+        os.makedirs(self.confs['save_dir_img'], exist_ok=True)
+        os.makedirs(self.confs['save_dir_obj'], exist_ok=True)
         for t in range(self.num_iter+1):
             self.optimizer.zero_grad()
             self.cam_optimizer.zero_grad()
@@ -148,7 +156,7 @@ class Processor:
             # Compute the loss function. Here it is L2 plus a regularization term to avoid coefficients to be too far from zero.
             # Both img and target are in linear color space, so no gamma correction is needed.
             loss = (img - self.target).pow(2).mean()
-            # loss = loss + 0.0001 * self.shape_coeffs.pow(2).mean() + 0.0001 * self.color_coeffs.pow(2).mean()
+            loss = loss + 0.0001 * self.shape_coeffs.pow(2).mean() + 0.0001 * self.color_coeffs.pow(2).mean()
             loss.backward()
             self.optimizer.step()
             self.cam_optimizer.step()
@@ -164,32 +172,27 @@ class Processor:
                 ax_loss.legend()
                 ax_diff_img.imshow((img - self.target).pow(2).sum(dim=2).data.cpu())
                 ax_img.imshow(torch.pow(img.data.cpu(), 1.0 / 2.2))
-                plt.show()
+                # plt.show()
 
                 temp_obj=get_temp_obj(self.shape_coeffs,self.color_coeffs)
-                save_obj(confs['save_dir_obj'],temp_obj,self.target_name,t)
-                save_img(confs['save_dir_img'],temp_obj,self.target_name,t,self.ambient_color,self.dir_light_intensity)
-                # start to save obj combine color
+                # 保存obj文件
+                # save_obj(self.confs['save_dir_obj'],temp_obj,self.target_name,t)
+                # 保存img文件
+                save_img(self.confs['save_dir_img'],temp_obj,self.target_name,t,self.ambient_color,self.dir_light_intensity)
+                # 保存带颜色的obj文件
                 vertices_v = (shape_mean + shape_basis @ self.shape_coeffs).view(-1,3)  # tensor [53149,3] 90,94,131 value  0,-4,55 mean
                 normals_n = pyredner.compute_vertex_normal(vertices_v, indices)  # ver normal tensor
                 colors_c = (color_mean + color_basis @ self.color_coeffs).view(-1, 3)
-                obj_name=os.path.join(confs['save_dir_obj'],self.target_name+'_'+str(t)+'_colored.obj')
+                obj_name=os.path.join(self.confs['save_dir_obj'],self.target_name+'_'+str(t)+'_colored.obj')
                 write_obj_with_colors(obj_name,vertices_v.data.cpu().numpy(),indices.data.cpu().numpy(),colors_c.data.cpu().numpy())
 
 
 
 if __name__ == '__main__':
+    # 初始化模型
     processor = Processor(confs)
+
     print('init ok')
+
+    # 训练模型并在过程中保存
     processor.train()
-    # tgt = io.imread('./datas/target.jpg')
-    # imshow(tgt)
-    # plt.show()
-    # tgten = torch.from_numpy(tgt).to(pyredner.get_device())
-    # # # transf = transforms.ToTensor()
-    # # # img_tensor = transf(tgt).T
-    # #
-    # imshow(tgten.cpu())
-    # plt.show()
-    # imshow(torch.pow(tgten, 1.0).cpu())
-    # plt.show()
